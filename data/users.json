@@ -1,0 +1,26 @@
+[
+  {
+    "id": "u-analista",
+    "name": "Analista",
+    "username": "analista",
+    "email": "analista@arcelormittal.com",
+    "password": "analista123",
+    "role": "analista"
+  },
+  {
+    "id": "u-vendedor-1",
+    "name": "Vendedor João",
+    "username": "vendedor",
+    "email": "joao@arcelormittal.com",
+    "password": "vendedor123",
+    "role": "vendedor"
+  },
+  {
+    "id": "u-vendedor-2",
+    "name": "Vendedor Maria",
+    "username": "maria",
+    "email": "maria@arcelormittal.com",
+    "password": "maria123",
+    "role": "vendedor"
+  }
+]
