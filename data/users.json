@@ -22,5 +22,14 @@
     "email": "maria@arcelormittal.com",
     "password": "maria123",
     "role": "vendedor"
+  },
+  {
+    "id": "4939c2b9-ff61-4fb2-b75f-1eb41a4b93fb",
+    "name": "marcos juan",
+    "username": "Marcos juan",
+    "email": "mj1901617@gmail.com",
+    "password": "1234",
+    "role": "analista",
+    "isPending": false
   }
 ]

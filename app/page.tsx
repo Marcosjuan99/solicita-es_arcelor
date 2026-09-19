@@ -5,12 +5,12 @@ import { useEffect, useMemo, useState } from "react";
 
 type Role = "analista" | "vendedor";
 type Status =
-  | "Nova solicitação"
   | "Solicitação"
-  | "Em análise"
-  | "Aprovado"
-  | "Reprovado"
-  | "Implantado";
+  | "Nova solicitação"
+  | "Implantado"
+  | "Transito"
+  | "Chegou"
+  | "Negado";
 
 type User = {
   id: string;
@@ -27,6 +27,7 @@ type RequestItem = {
   unidade: string;
   vendedor: string;
   codigo: string;
+  cotacao?: string;
   descricao: string;
   volume: number;
   unidadeMedida: string;
@@ -45,6 +46,8 @@ type AuditLog = {
   role: Role;
   action: "Nova solicitação" | "Edição da solicitação";
   details: string;
+  requestData?: Pick<RequestItem, "unidade" | "vendedor" | "codigo" | "cotacao" | "descricao" | "volume" | "unidadeMedida">;
+  requestOwner?: string;
   requestId?: string;
   requestCode?: string;
 };
@@ -53,6 +56,7 @@ type DateFilter = "todos" | "hoje" | "semana" | "mes-atual" | "mes-passado";
 
 const STORAGE_KEY = "am-estoque-demandas";
 const LOG_KEY = "am-estoque-logs";
+const READ_LOGS_KEY = "am-estoque-read-logs";
 const USERS_KEY = "am-estoque-users";
 const CURRENT_USER_KEY = "am-estoque-current-user";
 const INVITE_TOKENS_KEY = "am-estoque-invite-tokens";
@@ -166,11 +170,11 @@ const initialData: RequestItem[] = [
     descricao: "TB QD G15X15,0X95G6000-135-MET",
     volume: 100,
     unidadeMedida: "KG",
-    status: "Aprovado",
+    status: "Chegou",
     data: "2026-09-04",
     previsao: "15.09.2026",
     rit: "RITM1177720",
-    observacao: "Aprovado pelo analista e encaminhado.",
+    observacao: "Material chegou ao destino.",
   },
   {
     id: "6",
@@ -180,30 +184,30 @@ const initialData: RequestItem[] = [
     descricao: "TB RD BQ 63,50X2,00X6000-30",
     volume: 350,
     unidadeMedida: "KG",
-    status: "Reprovado",
+    status: "Negado",
     data: "2026-09-04",
     previsao: "-",
     rit: "RITM1177749",
-    observacao: "Reprovado por divergência de especificação.",
+    observacao: "Pedido negado por divergência de especificação.",
   },
 ];
 
 const statusOptions: Status[] = [
-  "Nova solicitação",
   "Solicitação",
-  "Em análise",
-  "Aprovado",
-  "Reprovado",
+  "Nova solicitação",
   "Implantado",
+  "Transito",
+  "Chegou",
+  "Negado",
 ];
 
 const statusClasses: Record<Status, string> = {
-  "Nova solicitação": "bg-amber-500/15 text-amber-200 border border-amber-400/30",
   Solicitação: "bg-amber-500/15 text-amber-200 border border-amber-400/30",
-  "Em análise": "bg-sky-500/15 text-sky-200 border border-sky-400/30",
-  Aprovado: "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30",
-  Reprovado: "bg-red-500/15 text-red-200 border border-red-400/30",
+  "Nova solicitação": "bg-amber-500/15 text-amber-200 border border-amber-400/30",
   Implantado: "bg-violet-500/15 text-violet-200 border border-violet-400/30",
+  Transito: "bg-sky-500/15 text-sky-200 border border-sky-400/30",
+  Chegou: "bg-emerald-500/15 text-emerald-200 border border-emerald-400/30",
+  Negado: "bg-red-500/15 text-red-200 border border-red-400/30",
 };
 
 const dateFilterOptions: { value: DateFilter; label: string }[] = [
@@ -259,6 +263,20 @@ const matchesDateFilter = (value: string, filter: DateFilter) => {
   const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
   const end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
   return date >= start && date <= end;
+};
+
+const matchesDateRange = (value: string, startDate: string, endDate: string) => {
+  const date = parseDateValue(value);
+  if (!date) return false;
+
+  if (!startDate && !endDate) return true;
+
+  const start = startDate ? new Date(`${startDate}T00:00:00`) : null;
+  const end = endDate ? new Date(`${endDate}T23:59:59`) : null;
+
+  if (start && date < start) return false;
+  if (end && date > end) return false;
+  return true;
 };
 
 const formatDate = (dateString: string) => {
@@ -369,6 +387,8 @@ const addAuditLog = (
   details: string,
   requestId?: string,
   requestCode?: string,
+  requestData?: AuditLog["requestData"],
+  requestOwner?: string,
 ) => {
   if (!currentUser) return;
 
@@ -380,6 +400,8 @@ const addAuditLog = (
     role: currentUser.role,
     action,
     details,
+    requestData,
+    requestOwner,
     requestId,
     requestCode,
   };
@@ -399,12 +421,16 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [filterStatus, setFilterStatus] = useState<string>("Todos");
-  const [requestDateFilter, setRequestDateFilter] = useState<DateFilter>("todos");
+  const [requestDateStart, setRequestDateStart] = useState("");
+  const [requestDateEnd, setRequestDateEnd] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
   const [logsFilter, setLogsFilter] = useState<"mine" | "all">("mine");
   const [logsDateFilter, setLogsDateFilter] = useState<DateFilter>("todos");
+  const [readLogIds, setReadLogIds] = useState<string[]>([]);
   const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
   const [showForm, setShowForm] = useState(false);
+  const [showRanking, setShowRanking] = useState(false);
+  const [rankingView, setRankingView] = useState<"solicitacoes" | "volume">("solicitacoes");
   const [showUserForm, setShowUserForm] = useState(false);
   const [activeAnalystTab, setActiveAnalystTab] = useState<"solicitacoes" | "usuarios">("solicitacoes");
   const [selectedForDeletion, setSelectedForDeletion] = useState<string[]>([]);
@@ -413,6 +439,7 @@ export default function Home() {
     unidade: "9666",
     vendedor: "",
     codigo: "",
+    cotacao: "",
     descricao: "",
     volume: "",
     unidadeMedida: "KG",
@@ -496,22 +523,42 @@ export default function Home() {
     }
   }, [currentUser]);
 
+  useEffect(() => {
+    const handleStorageChange = (event: StorageEvent) => {
+      if (event.key === LOG_KEY && event.newValue) {
+        setAuditLogs(JSON.parse(event.newValue));
+      }
+      if (event.key === STORAGE_KEY && event.newValue) {
+        setRequests(JSON.parse(event.newValue));
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    const savedReadLogIds = window.localStorage.getItem(`${READ_LOGS_KEY}-${currentUser.id}`);
+    setReadLogIds(savedReadLogIds ? JSON.parse(savedReadLogIds) : []);
+  }, [currentUser]);
+
   const filteredRequests = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
 
     return requests.filter((item) => {
       const matchesStatus = filterStatus === "Todos" || item.status === filterStatus;
-      const matchesDate = matchesDateFilter(item.data, requestDateFilter);
+      const matchesDate = matchesDateRange(item.data, requestDateStart, requestDateEnd);
       const matchesQuery =
         !term ||
-        [item.unidade, item.vendedor, item.codigo, item.descricao, item.rit]
+        [item.unidade, item.vendedor, item.codigo, item.cotacao ?? "", item.descricao, item.rit]
           .join(" ")
           .toLowerCase()
           .includes(term);
 
       return matchesStatus && matchesDate && matchesQuery;
     });
-  }, [requests, filterStatus, requestDateFilter, searchTerm]);
+  }, [requests, filterStatus, requestDateStart, requestDateEnd, searchTerm]);
 
   const visibleLogs = useMemo(() => {
     return auditLogs.filter((log) => {
@@ -519,9 +566,49 @@ export default function Home() {
       if (!matchesDateFilter(log.timestamp, logsDateFilter)) return false;
       if (!currentUser) return false;
       if (currentUser.role === "analista") return true;
-      return log.userId === currentUser.id;
+      const currentUserName = currentUser.name.trim().toLowerCase();
+      return log.userId === currentUser.id
+        || log.requestData?.vendedor.trim().toLowerCase() === currentUserName
+        || log.requestOwner?.trim().toLowerCase() === currentUserName
+        || requests.some(
+          (request) => request.id === log.requestId && request.vendedor.trim().toLowerCase() === currentUserName,
+        );
     });
-  }, [auditLogs, currentUser, logsDateFilter]);
+  }, [auditLogs, currentUser, logsDateFilter, requests]);
+
+  const unreadNotifications = useMemo(
+    () => visibleLogs.filter((log) => log.role === "analista" && log.action === "Edição da solicitação" && !readLogIds.includes(log.id)),
+    [readLogIds, visibleLogs],
+  );
+
+  const unreadNewRequests = useMemo(
+    () => auditLogs.filter((log) => log.action === "Nova solicitação" && !readLogIds.includes(log.id)),
+    [auditLogs, readLogIds],
+  );
+
+  const markNotificationsAsRead = () => {
+    if (!currentUser || !unreadNotifications.length) return;
+    const nextReadLogIds = [...new Set([...readLogIds, ...unreadNotifications.map((log) => log.id)])];
+    setReadLogIds(nextReadLogIds);
+    window.localStorage.setItem(`${READ_LOGS_KEY}-${currentUser.id}`, JSON.stringify(nextReadLogIds));
+    document.getElementById("audit-logs")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const markNewRequestsAsRead = () => {
+    if (!currentUser || !unreadNewRequests.length) return;
+    const nextReadLogIds = [...new Set([...readLogIds, ...unreadNewRequests.map((log) => log.id)])];
+    setReadLogIds(nextReadLogIds);
+    window.localStorage.setItem(`${READ_LOGS_KEY}-${currentUser.id}`, JSON.stringify(nextReadLogIds));
+    setActiveAnalystTab("solicitacoes");
+    setShowUserForm(false);
+    setFilterStatus("Todos");
+    setRequestDateStart("");
+    setRequestDateEnd("");
+    setSearchTerm("");
+    window.setTimeout(() => {
+      document.getElementById("requests-list")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
 
   const totalByStatus = useMemo(
     () =>
@@ -543,6 +630,36 @@ export default function Home() {
     });
     return [...groups.entries()].filter(([, count]) => count > 1).length;
   }, [requests]);
+
+  const sellerRanking = useMemo(() => {
+    const totals = new Map<string, { total: number; volumes: Record<string, number> }>();
+
+    requests.forEach((request) => {
+      const seller = request.vendedor.trim() || "Sem vendedor";
+      const current = totals.get(seller) ?? { total: 0, volumes: {} };
+      const unit = request.unidadeMedida || "UN";
+      totals.set(seller, {
+        total: current.total + 1,
+        volumes: {
+          ...current.volumes,
+          [unit]: (current.volumes[unit] ?? 0) + request.volume,
+        },
+      });
+    });
+
+    return [...totals.entries()]
+      .map(([seller, summary]) => ({ seller, ...summary }))
+      .sort((first, second) => second.total - first.total || first.seller.localeCompare(second.seller));
+  }, [requests]);
+
+  const sellerVolumeRanking = useMemo(
+    () => [...sellerRanking].sort((first, second) => {
+      const firstVolume = Object.values(first.volumes).reduce((sum, volume) => sum + volume, 0);
+      const secondVolume = Object.values(second.volumes).reduce((sum, volume) => sum + volume, 0);
+      return secondVolume - firstVolume || first.seller.localeCompare(second.seller);
+    }),
+    [sellerRanking],
+  );
 
   const handleLogin = async () => {
     const savedUsers = getUsers();
@@ -575,6 +692,8 @@ export default function Home() {
 
       const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
       markInviteUsed(matchedUser.id);
+      const savedLogs = window.localStorage.getItem(LOG_KEY);
+      setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
       setCurrentUser(authenticatedUser);
       setLoginForm({ username: "", password: "" });
       window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
@@ -586,6 +705,8 @@ export default function Home() {
       return;
     }
 
+    const savedLogs = window.localStorage.getItem(LOG_KEY);
+    setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
     setCurrentUser(matchedUser);
     setLoginForm({ username: "", password: "" });
     window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(matchedUser));
@@ -711,7 +832,7 @@ export default function Home() {
 
   const handleSubmit = () => {
     if (!currentUser) return;
-    if (!form.codigo || !form.descricao || !form.volume) {
+    if (!form.codigo || !form.cotacao || !form.descricao || !form.volume) {
       return;
     }
 
@@ -721,6 +842,7 @@ export default function Home() {
       unidade: form.unidade,
       vendedor: requestOwner,
       codigo: form.codigo,
+      cotacao: form.cotacao.trim(),
       descricao: form.descricao,
       volume: Number(form.volume),
       unidadeMedida: form.unidadeMedida,
@@ -734,13 +856,30 @@ export default function Home() {
     };
 
     setRequests((current) => [newRequest, ...current]);
-    addAuditLog(currentUser, "Nova solicitação", `Criação da demanda ${newRequest.codigo}.`, newRequest.id, newRequest.codigo);
+    addAuditLog(
+      currentUser,
+      "Nova solicitação",
+      `Criação da demanda ${newRequest.codigo}.`,
+      newRequest.id,
+      newRequest.codigo,
+      {
+        unidade: newRequest.unidade,
+        vendedor: newRequest.vendedor,
+        codigo: newRequest.codigo,
+        cotacao: newRequest.cotacao,
+        descricao: newRequest.descricao,
+        volume: newRequest.volume,
+        unidadeMedida: newRequest.unidadeMedida,
+      },
+      newRequest.vendedor,
+    );
     setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
 
     setForm({
       unidade: "9666",
       vendedor: currentUser.name,
       codigo: "",
+      cotacao: "",
       descricao: "",
       volume: "",
       unidadeMedida: "KG",
@@ -769,13 +908,15 @@ export default function Home() {
         ...(current[id] ?? {}),
         status: nextStatus,
         observacao:
-          nextStatus === "Aprovado"
-            ? "Pedido aprovado pelo analista."
-            : nextStatus === "Reprovado"
-              ? "Pedido reprovado pelo analista."
-              : nextStatus === "Implantado"
-                ? "Material implantado e pendente de conclusão."
-                : "Solicitação atualizada pelo analista.",
+          nextStatus === "Transito"
+            ? "Material em trânsito para entrega."
+            : nextStatus === "Chegou"
+              ? "Material chegou ao destino."
+              : nextStatus === "Negado"
+                ? "Pedido negado pelo analista."
+                : nextStatus === "Implantado"
+                  ? "Material implantado e pendente de conclusão."
+                  : "Solicitação atualizada pelo analista.",
       },
     }));
   };
@@ -796,6 +937,7 @@ export default function Home() {
       unidade: currentItem.unidade,
       vendedor: currentItem.vendedor,
       codigo: currentItem.codigo,
+      cotacao: currentItem.cotacao ?? "",
       descricao: currentItem.descricao,
       volume: currentItem.volume,
       unidadeMedida: currentItem.unidadeMedida,
@@ -831,6 +973,16 @@ export default function Home() {
       `Alteração da solicitação ${currentItem.codigo}: ${formattedChanges}.`,
       currentItem.id,
       currentItem.codigo,
+      {
+        unidade: nextItem.unidade,
+        vendedor: nextItem.vendedor,
+        codigo: nextItem.codigo,
+        cotacao: nextItem.cotacao,
+        descricao: nextItem.descricao,
+        volume: nextItem.volume,
+        unidadeMedida: nextItem.unidadeMedida,
+      },
+      currentItem.vendedor,
     );
     setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
 
@@ -867,6 +1019,15 @@ export default function Home() {
       `Exclusão da solicitação ${target.codigo}: código removido do sistema.`,
       target.id,
       target.codigo,
+      {
+        unidade: target.unidade,
+        vendedor: target.vendedor,
+        codigo: target.codigo,
+        descricao: target.descricao,
+        volume: target.volume,
+        unidadeMedida: target.unidadeMedida,
+      },
+      target.vendedor,
     );
     setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
   };
@@ -888,6 +1049,16 @@ export default function Home() {
         `Exclusão da solicitação ${target.codigo}: código removido do sistema.`,
         target.id,
         target.codigo,
+        {
+          unidade: target.unidade,
+          vendedor: target.vendedor,
+          codigo: target.codigo,
+          cotacao: target.cotacao,
+          descricao: target.descricao,
+          volume: target.volume,
+          unidadeMedida: target.unidadeMedida,
+        },
+        target.vendedor,
       );
     });
     setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
@@ -899,6 +1070,7 @@ export default function Home() {
       "Unidade",
       "Vendedor",
       "Código",
+      "Cotação",
       "Descrição",
       "Volume",
       "UDM",
@@ -912,6 +1084,7 @@ export default function Home() {
       item.unidade,
       item.vendedor,
       item.codigo,
+      item.cotacao ?? "-",
       item.descricao,
       item.volume,
       item.unidadeMedida,
@@ -926,6 +1099,28 @@ export default function Home() {
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Solicitações");
     XLSX.writeFile(workbook, "solicitacoes-arcelor.xlsx");
+  };
+
+  const exportRankingXlsx = () => {
+    const requestRows = sellerRanking.map(({ seller, total, volumes }, index) => [
+      index + 1,
+      seller,
+      total,
+      Object.entries(volumes).map(([unit, volume]) => `${volume} ${unit}`).join(" | "),
+    ]);
+    const volumeRows = sellerVolumeRanking.map(({ seller, total, volumes }, index) => [
+      index + 1,
+      seller,
+      Object.entries(volumes).map(([unit, volume]) => `${volume} ${unit}`).join(" | "),
+      total,
+    ]);
+    const workbook = XLSX.utils.book_new();
+    const requestWorksheet = XLSX.utils.aoa_to_sheet([["Posição", "Vendedor", "Solicitações", "Volumes solicitados"], ...requestRows]);
+    const volumeWorksheet = XLSX.utils.aoa_to_sheet([["Posição", "Vendedor", "Volumes solicitados", "Solicitações"], ...volumeRows]);
+
+    XLSX.utils.book_append_sheet(workbook, requestWorksheet, "Ranking solicitações");
+    XLSX.utils.book_append_sheet(workbook, volumeWorksheet, "Ranking volume");
+    XLSX.writeFile(workbook, "ranking-vendedores-arcelor.xlsx");
   };
 
   if (!currentUser) {
@@ -979,7 +1174,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0f1117] text-slate-100">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-8xl px-4 py-8 sm:px-6 lg:px-8">
         <header className="mb-8 flex flex-col gap-6 rounded-2xl border border-[#d7a24a]/30 bg-[#1b1f27] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -988,6 +1183,46 @@ export default function Home() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {currentUser.role === "analista" && (
+                <button
+                  type="button"
+                  onClick={markNewRequestsAsRead}
+                  className={`relative rounded-xl border px-3 py-2 text-lg transition ${
+                    unreadNewRequests.length
+                      ? "animate-pulse border-red-400/60 bg-red-500/15 text-red-200"
+                      : "border-white/10 bg-[#10151d] text-slate-300"
+                  }`}
+                  aria-label={unreadNewRequests.length ? `${unreadNewRequests.length} novas solicitações` : "Nenhuma nova solicitação"}
+                  title={unreadNewRequests.length ? "Ver novas solicitações" : "Nenhuma nova solicitação"}
+                >
+                  <span aria-hidden="true">🔔</span>
+                  {unreadNewRequests.length > 0 && (
+                    <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                      {unreadNewRequests.length}
+                    </span>
+                  )}
+                </button>
+              )}
+              {currentUser.role === "vendedor" && (
+                <button
+                  type="button"
+                  onClick={markNotificationsAsRead}
+                  className={`relative rounded-xl border px-3 py-2 text-lg transition ${
+                    unreadNotifications.length
+                      ? "animate-pulse border-red-400/60 bg-red-500/15 text-red-200"
+                      : "border-white/10 bg-[#10151d] text-slate-300"
+                  }`}
+                  aria-label={unreadNotifications.length ? `${unreadNotifications.length} alterações não lidas` : "Nenhuma alteração não lida"}
+                  title={unreadNotifications.length ? "Ver alterações do analista" : "Nenhuma alteração nova"}
+                >
+                  <span aria-hidden="true">🔔</span>
+                  {unreadNotifications.length > 0 && (
+                    <span className="absolute -right-2 -top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                      {unreadNotifications.length}
+                    </span>
+                  )}
+                </button>
+              )}
               <div className="rounded-full border border-[#d7a24a]/40 bg-[#d7a24a]/10 px-3 py-1.5 text-sm text-[#f9d59a]">
                 {currentUser.name} · {currentUser.role}
               </div>
@@ -1020,10 +1255,10 @@ export default function Home() {
               </div>
             </div>
             <div className="rounded-2xl border border-sky-400/20 bg-sky-500/10 p-4">
-              <p className="text-xs uppercase tracking-[0.2em] text-sky-200">Em análise</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-sky-200">TRANSITO</p>
               <div className="mt-3 flex items-end justify-between">
-                <span className="text-3xl font-bold text-white">{totalByStatus["Em análise"] ?? 0}</span>
-                <span className="text-sm text-sky-300">Aguardando aprovação</span>
+                <span className="text-3xl font-bold text-white">{totalByStatus["Transito"] ?? 0}</span>
+                <span className="text-sm text-sky-300">Em trânsito</span>
               </div>
             </div>
             <div className="rounded-2xl border border-red-400/20 bg-red-500/10 p-4">
@@ -1036,12 +1271,141 @@ export default function Home() {
           </div>
         </header>
 
+        {isAnalyst && (
+          <section className="mb-6 flex justify-end">
+            <button
+              type="button"
+              onClick={() => setShowRanking(true)}
+              className="rounded-xl border border-[#d7a24a]/40 bg-[#1b1f27] px-4 py-3 text-sm font-bold text-[#f7d9a0] transition hover:border-[#d7a24a]"
+            >
+              Ranking de vendedores
+            </button>
+          </section>
+        )}
+
+        {isAnalyst && showRanking && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setShowRanking(false)}
+            role="presentation"
+          >
+            <section
+              className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#d7a24a]/30 bg-[#171d28] p-5 shadow-[0_18px_60px_rgba(0,0,0,0.55)]"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="ranking-title"
+            >
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 id="ranking-title" className="text-xl font-bold text-white">Ranking de vendedores</h2>
+                  <p className="mt-1 text-sm text-slate-400">Solicitações realizadas por vendedor</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowRanking(false)}
+                  className="rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:border-white/20 hover:text-white"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="mb-4 flex w-full items-center justify-between gap-4">
+                <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+                  <span aria-hidden="true" className="text-sm leading-none">↻</span>
+                  <span>Atualizado em tempo real</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={exportRankingXlsx}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#d7a24a]/40 bg-[#10151d] px-4 py-2 text-sm font-bold text-[#f7d9a0] transition hover:border-[#d7a24a]"
+                >
+                  <span aria-hidden="true" className="text-base leading-none">↓</span>
+                  <span>Exportar ranking XLSX</span>
+                </button>
+              </div>
+
+              <div className="mb-4 inline-flex rounded-xl border border-white/10 bg-[#10151d] p-1">
+                <button
+                  type="button"
+                  onClick={() => setRankingView("solicitacoes")}
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    rankingView === "solicitacoes" ? "bg-[#d7a24a] text-[#10151d]" : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  Solicitações
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRankingView("volume")}
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold transition ${
+                    rankingView === "volume" ? "bg-[#d7a24a] text-[#10151d]" : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  Volume
+                </button>
+              </div>
+
+              {sellerRanking.length > 0 ? (
+                <div className="grid gap-5 lg:grid-cols-2">
+                  {rankingView === "solicitacoes" && <div className="overflow-x-auto lg:col-span-2">
+                    <h3 className="mb-2 text-sm font-bold uppercase tracking-[0.12em] text-[#f9d59a]">Ranking de solicitações</h3>
+                    <table className="min-w-full border-collapse text-left text-sm">
+                      <thead className="bg-[#1d2430] text-slate-300">
+                        <tr>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Posição</th>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Vendedor</th>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Solicitações</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sellerRanking.map(({ seller, total }, index) => (
+                          <tr key={seller} className="border-b border-white/10 bg-[#151d2a] text-slate-200 last:border-b-0">
+                            <td className="px-4 py-3 font-bold text-[#f9d59a]">{index + 1}º</td>
+                            <td className="px-4 py-3 font-medium text-white">{seller}</td>
+                            <td className="px-4 py-3">{total}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>}
+
+                  {rankingView === "volume" && <div className="overflow-x-auto lg:col-span-2">
+                    <h3 className="mb-2 text-sm font-bold uppercase tracking-[0.12em] text-[#f9d59a]">Ranking de volume</h3>
+                    <table className="min-w-full border-collapse text-left text-sm">
+                      <thead className="bg-[#1d2430] text-slate-300">
+                        <tr>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Posição</th>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Vendedor</th>
+                          <th className="border-b border-white/10 px-4 py-3 font-semibold">Volume</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sellerVolumeRanking.map(({ seller, volumes }, index) => (
+                          <tr key={seller} className="border-b border-white/10 bg-[#151d2a] text-slate-200 last:border-b-0">
+                            <td className="px-4 py-3 font-bold text-[#f9d59a]">{index + 1}º</td>
+                            <td className="px-4 py-3 font-medium text-white">{seller}</td>
+                            <td className="px-4 py-3">{Object.entries(volumes).map(([unit, volume]) => `${volume} ${unit}`).join(" · ")}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">Nenhuma solicitação registrada ainda.</p>
+              )}
+            </section>
+          </div>
+        )}
+
         <section className="mb-6 grid gap-4 lg:grid-cols-[1fr_auto_auto_auto]">
           <div className="rounded-xl border border-white/10 bg-[#1b1f27] px-4 py-3">
             <input
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.target.value)}
-              placeholder="Buscar por unidade, vendedor, código, descrição ou RIT..."
+              placeholder="Buscar por unidade, vendedor, código, cotação, descrição ou RIT..."
               className="w-full bg-transparent text-sm text-white placeholder:text-slate-400 focus:outline-none"
             />
           </div>
@@ -1059,17 +1423,45 @@ export default function Home() {
             ))}
           </select>
 
-          <select
-            value={requestDateFilter}
-            onChange={(event) => setRequestDateFilter(event.target.value as DateFilter)}
-            className="rounded-xl border border-white/10 bg-[#1b1f27] px-4 py-3 text-sm text-slate-100 outline-none"
-          >
-            {dateFilterOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <div className="relative overflow-hidden rounded-2xl border border-[#d7a24a]/25 bg-[linear-gradient(135deg,#1b1f27_0%,#141b26_100%)] px-3 py-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-[#f9d59a]">Período</span>
+              {(requestDateStart || requestDateEnd) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRequestDateStart("");
+                    setRequestDateEnd("");
+                  }}
+                  className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300 transition hover:text-white"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <label className="group flex cursor-pointer flex-col gap-1.5 rounded-xl border border-white/10 bg-[#0f172a]/80 px-2.5 py-2 transition hover:border-[#d7a24a]/45 hover:bg-[#111827]">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400 group-hover:text-[#f9d59a]">Início</span>
+                <input
+                  type="date"
+                  value={requestDateStart}
+                  onChange={(event) => setRequestDateStart(event.target.value)}
+                  className="w-full rounded-md border border-white/10 bg-[#10151d] px-2 py-1.5 text-xs font-medium text-white outline-none ring-0 placeholder:text-slate-500"
+                />
+              </label>
+
+              <label className="group flex cursor-pointer flex-col gap-1.5 rounded-xl border border-white/10 bg-[#0f172a]/80 px-2.5 py-2 transition hover:border-[#d7a24a]/45 hover:bg-[#111827]">
+                <span className="text-[9px] font-semibold uppercase tracking-[0.18em] text-slate-400 group-hover:text-[#f9d59a]">Fim</span>
+                <input
+                  type="date"
+                  value={requestDateEnd}
+                  onChange={(event) => setRequestDateEnd(event.target.value)}
+                  className="w-full rounded-md border border-white/10 bg-[#10151d] px-2 py-1.5 text-xs font-medium text-white outline-none ring-0 placeholder:text-slate-500"
+                />
+              </label>
+            </div>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             {(currentUser.role === "vendedor" || isAnalyst) && (
@@ -1293,6 +1685,12 @@ export default function Home() {
                 />
               )}
               <input
+                value={form.cotacao}
+                onChange={(event) => setForm({ ...form, cotacao: event.target.value })}
+                placeholder="Nº da cotação"
+                className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
+              />
+              <input
                 value={form.codigo}
                 onChange={(event) => setForm({ ...form, codigo: event.target.value })}
                 placeholder="Código"
@@ -1318,8 +1716,7 @@ export default function Home() {
               >
                 <option value="KG">KG</option>
                 <option value="PC">PC</option>
-                <option value="M">M</option>
-                <option value="TON">TON</option>
+                <option value="ROL">ROL</option>
               </select>
             </div>
 
@@ -1335,7 +1732,7 @@ export default function Home() {
           </section>
         )}
 
-        <section className="overflow-hidden rounded-2xl border border-white/10 bg-[#121821] shadow-[0_12px_40px_rgba(0,0,0,0.25)]">
+        <section id="requests-list" className="overflow-hidden rounded-2xl border border-white/10 bg-[#121821] shadow-[0_12px_40px_rgba(0,0,0,0.25)]">
           {isAnalyst && selectedForDeletion.length > 0 && (
             <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-[#171d28] px-4 py-3">
               <span className="text-sm text-slate-200">
@@ -1383,6 +1780,7 @@ export default function Home() {
                     "Volume",
                     "UDM",
                     "Status",
+                    "Cotação",
                     "Data",
                     "Previsão",
                     "RIT",
@@ -1471,6 +1869,17 @@ export default function Home() {
                           {draftItem.status}
                         </span>
                       </td>
+                      <td className="px-4 py-3">
+                        {isAnalyst ? (
+                          <input
+                            value={draftItem.cotacao ?? ""}
+                            onChange={(event) => updateDraftField(item.id, "cotacao", event.target.value)}
+                            className="w-28 rounded-lg border border-white/10 bg-[#0f172a] px-2 py-1.5 text-sm text-white"
+                          />
+                        ) : (
+                          item.cotacao ?? "-"
+                        )}
+                      </td>
                       <td className="px-4 py-3">{formatDate(item.data)}</td>
                       <td className="px-4 py-3">
                         {isAnalyst ? (
@@ -1544,7 +1953,7 @@ export default function Home() {
           )}
         </section>
 
-        <section className="mt-8 rounded-2xl border border-white/10 bg-[#121821] p-5">
+        <section id="audit-logs" className="mt-8 rounded-2xl border border-white/10 bg-[#121821] p-5">
           <div className="mb-4 flex items-center justify-between gap-4">
             <h2 className="text-xl font-bold text-white">Logs de auditoria</h2>
             <div className="flex flex-wrap items-center gap-3">
@@ -1574,7 +1983,11 @@ export default function Home() {
 
           <div className="max-h-[360px] space-y-3 overflow-y-auto pr-1">
             {visibleLogs
-              .filter((log) => (logsFilter === "all" || log.userId === currentUser.id))
+              .filter((log) => (
+                currentUser.role !== "analista"
+                || logsFilter === "all"
+                || log.userId === currentUser.id
+              ))
               .map((log) => (
                 <div key={log.id} className="rounded-xl border border-white/10 bg-[#0f172a] p-3 text-sm text-slate-200">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1586,7 +1999,18 @@ export default function Home() {
                   </div>
                   <div className="mt-2 font-medium text-slate-100">{log.action}</div>
                   <div className="text-slate-300">{log.details}</div>
-                  {log.requestCode && <div className="mt-2 text-xs text-slate-400">Código: {log.requestCode}</div>}
+                  {log.requestData && (
+                    <div className="mt-2 flex min-w-max items-center gap-4 whitespace-nowrap text-xs text-slate-400">
+                      <span>Unidade: {log.requestData.unidade}</span>
+                      <span>Vendedor: {log.requestData.vendedor}</span>
+                      <span>Código: {log.requestData.codigo}</span>
+                      <span>Cotação: {log.requestData.cotacao ?? "-"}</span>
+                      <span>Descrição: {log.requestData.descricao}</span>
+                      <span>Volume: {log.requestData.volume}</span>
+                      <span>UDM: {log.requestData.unidadeMedida}</span>
+                    </div>
+                  )}
+                  {log.requestCode && !log.requestData && <div className="mt-2 text-xs text-slate-400">Código: {log.requestCode}</div>}
                 </div>
               ))}
           </div>
