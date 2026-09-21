@@ -410,6 +410,8 @@ export default function Home() {
   const [logsDateFilter, setLogsDateFilter] = useState<DateFilter>("todos");
   const [readLogIds, setReadLogIds] = useState<string[]>([]);
   const [showForm, setShowForm] = useState(false);
+  const [inviteLink, setInviteLink] = useState("");
+  const [inviteCopied, setInviteCopied] = useState(false);
   const [showRanking, setShowRanking] = useState(false);
   const [rankingView, setRankingView] = useState<"solicitacoes" | "volume">("solicitacoes");
   const [showUserForm, setShowUserForm] = useState(false);
@@ -756,7 +758,8 @@ export default function Home() {
       setUsers(nextUsers);
       localStorage.setItem(USERS_KEY, JSON.stringify(nextUsers));
 
-      alert(`Convite criado para ${name}.\n\nEnvie este link para a pessoa:\n${result.inviteLink}`);
+      setInviteLink(result.inviteLink);
+      setInviteCopied(false);
       setNewUserForm({ name: "", username: "", email: "", password: "", role: "vendedor" });
       setShowUserForm(false);
     } catch (error) {
@@ -1221,6 +1224,51 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-[#0f1117] text-slate-100">
       <div className="mx-auto max-w-8xl px-4 py-8 sm:px-6 lg:px-8">
+        {inviteLink && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4"
+            onClick={() => setInviteLink("")}
+            role="presentation"
+          >
+            <section
+              className="w-full max-w-lg rounded-2xl border border-[#d7a24a]/40 bg-[#171d28] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.6)]"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="invite-link-title"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#d7a24a]">Convite criado</p>
+                  <h2 id="invite-link-title" className="mt-2 text-xl font-bold text-white">Envie este link ao novo usuário</h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInviteLink("")}
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-sm text-slate-300 hover:border-white/20 hover:text-white"
+                >
+                  Fechar
+                </button>
+              </div>
+
+              <div className="mt-5 rounded-xl border border-white/10 bg-[#0f172a] p-3">
+                <p className="break-all text-sm leading-6 text-slate-200">{inviteLink}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(inviteLink);
+                  setInviteCopied(true);
+                }}
+                className="mt-4 w-full rounded-xl bg-[#d7a24a] px-4 py-3 text-sm font-bold text-[#10151d] hover:bg-[#e4b564]"
+              >
+                {inviteCopied ? "Link copiado" : "Copiar link"}
+              </button>
+            </section>
+          </div>
+        )}
+
         <header className="mb-8 flex flex-col gap-6 rounded-2xl border border-[#d7a24a]/30 bg-[#1b1f27] p-6 shadow-[0_18px_60px_rgba(0,0,0,0.45)]">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
