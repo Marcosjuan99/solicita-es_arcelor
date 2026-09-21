@@ -3,6 +3,8 @@
 import * as XLSX from "xlsx";
 import { useEffect, useMemo, useState } from "react";
 
+import { getSupabaseBrowserClient } from "../lib/supabase-browser";
+
 type Role = "analista" | "vendedor";
 type Status =
   | "Solicitação"
@@ -462,6 +464,7 @@ export default function Home() {
     const inviteToken = params.get("invite");
     const savedUser = window.localStorage.getItem(CURRENT_USER_KEY);
     if (inviteToken) {
+      void getSupabaseBrowserClient().auth.signOut();
       window.localStorage.removeItem(CURRENT_USER_KEY);
     } else if (savedUser) {
       setCurrentUser(JSON.parse(savedUser));
@@ -675,6 +678,14 @@ export default function Home() {
       }
 
       const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
+      const { error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+        email: matchedUser.email,
+        password: passwordValue,
+      });
+      if (authError) {
+        alert(authError.message);
+        return;
+      }
       markInviteUsed(matchedUser.id);
       const savedLogs = window.localStorage.getItem(LOG_KEY);
       setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
@@ -692,6 +703,15 @@ export default function Home() {
     const result = await response.json();
     if (!response.ok) {
       alert(result?.error ?? "Não foi possível entrar no sistema.");
+      return;
+    }
+
+    const { error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+      email: result.user.email,
+      password: passwordValue,
+    });
+    if (authError) {
+      alert(authError.message);
       return;
     }
 
@@ -1253,6 +1273,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => {
+                  void getSupabaseBrowserClient().auth.signOut();
                   setCurrentUser(null);
                   window.localStorage.removeItem(CURRENT_USER_KEY);
                 }}

@@ -21,3 +21,38 @@ export function requireSupabase() {
 
   return supabase;
 }
+
+export async function ensureSupabaseAuthUser(
+  email: string,
+  password: string,
+  metadata: Record<string, string> = {},
+) {
+  const client = requireSupabase();
+  const { data: listed, error: listError } = await client.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+  if (listError) throw listError;
+
+  const existing = listed.users.find(
+    (user) => user.email?.toLowerCase() === email.toLowerCase(),
+  );
+  if (existing) {
+    const { data, error } = await client.auth.admin.updateUserById(existing.id, {
+      password,
+      email_confirm: true,
+      user_metadata: metadata,
+    });
+    if (error) throw error;
+    return data.user;
+  }
+
+  const { data, error } = await client.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: metadata,
+  });
+  if (error) throw error;
+  return data.user;
+}

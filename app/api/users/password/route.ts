@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { requireSupabase } from "../../../../lib/supabase";
+import {
+  ensureSupabaseAuthUser,
+  requireSupabase,
+} from "../../../../lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -27,10 +30,16 @@ export async function POST(request: Request) {
         { error: "Usuário não encontrado." },
         { status: 404 },
       );
+    await ensureSupabaseAuthUser(data.email, password, {
+      name: data.name,
+      role: data.role,
+      profileId: data.id,
+    });
     await client.from("invites").update({ used: true }).eq("user_id", data.id);
+    const { password: _password, ...safeUser } = data;
     return NextResponse.json({
       ok: true,
-      user: { ...data, isPending: data.is_pending },
+      user: { ...safeUser, isPending: data.is_pending },
     });
   } catch (error) {
     console.error("Password set failed:", error);

@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { requireSupabase } from "../../../../lib/supabase";
+import {
+  ensureSupabaseAuthUser,
+  requireSupabase,
+} from "../../../../lib/supabase";
 
 export async function POST(request: Request) {
   try {
@@ -35,6 +38,12 @@ export async function POST(request: Request) {
       );
     if (user.password !== password)
       return NextResponse.json({ error: "Senha inválida." }, { status: 401 });
+
+    await ensureSupabaseAuthUser(user.email, password, {
+      name: user.name,
+      role: user.role,
+      profileId: user.id,
+    });
 
     const { password: _password, ...safeUser } = user;
     return NextResponse.json({
