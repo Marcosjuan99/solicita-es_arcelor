@@ -8,10 +8,27 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const { error } = await requireSupabase()
+    const client = requireSupabase();
+    const { data: target, error: lookupError } = await client
       .from("users")
-      .delete()
-      .eq("id", id);
+      .select("username, email")
+      .eq("id", id)
+      .maybeSingle();
+    if (lookupError) throw lookupError;
+    if (!target) {
+      return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
+    }
+
+    const isMaster = target.username.trim().toLowerCase() === "master"
+      || target.email.trim().toLowerCase() === "master@arcelormittal.com";
+    if (isMaster) {
+      return NextResponse.json(
+        { error: "A exclusão do Master foi bloqueada pelo administrador." },
+        { status: 403 },
+      );
+    }
+
+    const { error } = await client.from("users").delete().eq("id", id);
     if (error) throw error;
     return NextResponse.json({ ok: true, removedId: id });
   } catch (error) {

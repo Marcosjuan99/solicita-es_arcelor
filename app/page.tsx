@@ -58,7 +58,6 @@ const STORAGE_KEY = "am-estoque-demandas";
 const LOG_KEY = "am-estoque-logs";
 const READ_LOGS_KEY = "am-estoque-read-logs";
 const USERS_KEY = "am-estoque-users";
-const CURRENT_USER_KEY = "am-estoque-current-user";
 const INVITE_TOKENS_KEY = "am-estoque-invite-tokens";
 
 const defaultUsers: User[] = [
@@ -472,22 +471,12 @@ export default function Home() {
         .catch(() => undefined);
     }
 
-    const savedUser = window.localStorage.getItem(CURRENT_USER_KEY);
-    if (savedUser) {
-      setCurrentUser(JSON.parse(savedUser));
-    }
   }, []);
 
   useEffect(() => {
     if (!requests.length) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
   }, [requests]);
-
-  useEffect(() => {
-    if (currentUser) {
-      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser));
-    }
-  }, [currentUser]);
 
   useEffect(() => {
     if (!users.length) return;
@@ -674,7 +663,6 @@ export default function Home() {
       setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
       setCurrentUser(authenticatedUser);
       setLoginForm({ username: "", password: "" });
-      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
       return;
     }
 
@@ -693,7 +681,6 @@ export default function Home() {
     setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
     setCurrentUser(result.user);
     setLoginForm({ username: "", password: "" });
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(result.user));
   };
 
   const handleCreateUser = async () => {
@@ -747,6 +734,13 @@ export default function Home() {
     const target = users.find((user) => user.id === userId);
     if (!target || target.id === currentUser.id) return;
 
+    const isMaster = target.username.trim().toLowerCase() === "master"
+      || target.email.trim().toLowerCase() === "master@arcelormittal.com";
+    if (isMaster) {
+      alert("A exclusão do Master foi bloqueada pelo administrador.");
+      return;
+    }
+
     const confirmed = window.confirm(`Deseja realmente resetar a senha de ${target.name}?`);
     if (!confirmed) return;
 
@@ -786,7 +780,6 @@ export default function Home() {
 
     if (currentUser.id === userId) {
       setCurrentUser(null);
-      localStorage.removeItem(CURRENT_USER_KEY);
     }
 
     try {
@@ -1245,7 +1238,6 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   setCurrentUser(null);
-                  window.localStorage.removeItem(CURRENT_USER_KEY);
                 }}
                 className="rounded-xl border border-white/10 bg-[#10151d] px-4 py-2 text-sm font-semibold text-slate-200 hover:border-white/20"
               >
