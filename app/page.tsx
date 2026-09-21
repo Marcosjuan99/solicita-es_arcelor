@@ -687,10 +687,16 @@ export default function Home() {
       }
 
       const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
-      const { error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
-        email: matchedUser.email,
-        password: passwordValue,
-      });
+      let authError;
+      try {
+        ({ error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+          email: matchedUser.email,
+          password: passwordValue,
+        }));
+      } catch (error) {
+        alert(error instanceof Error ? error.message : "Supabase Auth não está configurado na Vercel.");
+        return;
+      }
       if (authError) {
         alert(authError.message);
         return;
@@ -715,10 +721,16 @@ export default function Home() {
       return;
     }
 
-    const { error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
-      email: result.user.email,
-      password: passwordValue,
-    });
+    let authError;
+    try {
+      ({ error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+        email: result.user.email,
+        password: passwordValue,
+      }));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Supabase Auth não está configurado na Vercel.");
+      return;
+    }
     if (authError) {
       alert(authError.message);
       return;

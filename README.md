@@ -24,7 +24,7 @@ This project uses [`next/font`](https://nextjs.org/docs/app/building-your-applic
 
 1. Crie um projeto no Supabase.
 2. Execute o conteúdo de `supabase/schema.sql` no SQL Editor.
-3. Copie `.env.example` para `.env.local` e preencha `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` e `SUPABASE_SECRET_KEY`.
+3. Copie `.env.example` para `.env.local` e preencha `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (ou `NEXT_PUBLIC_SUPABASE_ANON_KEY`) e `SUPABASE_SECRET_KEY`.
 4. Reinicie o servidor de desenvolvimento.
 
 Usuários, solicitações, logs de auditoria e convites são gravados no Supabase. O login usa o Supabase Auth. A `SUPABASE_SECRET_KEY` é usada somente pelas rotas do servidor e não deve ser exposta no navegador.
