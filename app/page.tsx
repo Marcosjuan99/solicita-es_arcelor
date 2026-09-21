@@ -706,24 +706,20 @@ export default function Home() {
     if (!isAnalyst) return;
 
     const name = newUserForm.name.trim();
-    const username = newUserForm.username.trim();
     const email = newUserForm.email.trim().toLowerCase();
-    const password = newUserForm.password.trim();
 
-    if (!name || !username || !email || !password) {
-      alert("Preencha nome, usuário, e-mail e senha.");
+    if (!name || !email) {
+      alert("Preencha nome e e-mail.");
       return;
     }
 
     try {
-      const response = await fetch("/api/users", {
+      const response = await fetch("/api/invite", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
-          username,
           email,
-          password,
           role: newUserForm.role,
         }),
       });
@@ -734,11 +730,11 @@ export default function Home() {
         return;
       }
 
-      const nextUsers = mergeProtectedUsers([...getUsers(), result.user]);
+      const nextUsers = mergeProtectedUsers([...users, result.user]);
       setUsers(nextUsers);
       localStorage.setItem(USERS_KEY, JSON.stringify(nextUsers));
 
-      alert(`Usuário ${name} cadastrado com sucesso.`);
+      alert(`Convite criado para ${name}.\n\nEnvie este link para a pessoa:\n${result.inviteLink}`);
       setNewUserForm({ name: "", username: "", email: "", password: "", role: "vendedor" });
       setShowUserForm(false);
     } catch (error) {
@@ -1566,7 +1562,7 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   <input
                     value={newUserForm.name}
                     onChange={(event) => setNewUserForm({ ...newUserForm, name: event.target.value })}
@@ -1574,22 +1570,9 @@ export default function Home() {
                     className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
                   />
                   <input
-                    value={newUserForm.username}
-                    onChange={(event) => setNewUserForm({ ...newUserForm, username: event.target.value })}
-                    placeholder="Nome de usuário"
-                    className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
-                  />
-                  <input
                     value={newUserForm.email}
                     onChange={(event) => setNewUserForm({ ...newUserForm, email: event.target.value })}
                     placeholder="E-mail"
-                    className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
-                  />
-                  <input
-                    type="password"
-                    value={newUserForm.password}
-                    onChange={(event) => setNewUserForm({ ...newUserForm, password: event.target.value })}
-                    placeholder="Senha"
                     className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
                   />
                   <select
