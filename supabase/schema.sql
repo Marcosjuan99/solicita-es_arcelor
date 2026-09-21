@@ -56,11 +56,11 @@ create index if not exists audit_logs_timestamp_idx on public.audit_logs(timesta
 
 insert into public.users (id, name, username, email, password, role)
 values
-  ('u-analista', 'Analista', 'analista', 'analista@arcelormittal.com', 'analista123', 'analista'),
-  ('u-vendedor-1', 'Vendedor João', 'vendedor', 'joao@arcelormittal.com', 'vendedor123', 'vendedor'),
-  ('u-vendedor-2', 'Vendedor Maria', 'maria', 'maria@arcelormittal.com', 'maria123', 'vendedor'),
-  ('4939c2b9-ff61-4fb2-b75f-1eb41a4b93fb', 'marcos juan', 'Marcos juan', 'mj1901617@gmail.com', '1234', 'analista')
+  ('u-master', 'Master', 'Master', 'master@arcelormittal.com', 'Master001', 'analista')
 on conflict (id) do nothing;
+
+delete from public.users
+where id in ('u-analista', 'u-vendedor-1', 'u-vendedor-2', '4939c2b9-ff61-4fb2-b75f-1eb41a4b93fb');
 
 insert into public.requests (id, unidade, vendedor, codigo, descricao, volume, unidade_medida, status, data, previsao, rit, observacao)
 values

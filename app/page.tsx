@@ -63,28 +63,12 @@ const INVITE_TOKENS_KEY = "am-estoque-invite-tokens";
 
 const defaultUsers: User[] = [
   {
-    id: "u-analista",
-    name: "Analista",
-    username: "analista",
-    email: "analista@arcelormittal.com",
-    password: "analista123",
+    id: "u-master",
+    name: "Master",
+    username: "Master",
+    email: "master@arcelormittal.com",
+    password: "Master001",
     role: "analista",
-  },
-  {
-    id: "u-vendedor-1",
-    name: "Vendedor João",
-    username: "vendedor",
-    email: "joao@arcelormittal.com",
-    password: "vendedor123",
-    role: "vendedor",
-  },
-  {
-    id: "u-vendedor-2",
-    name: "Vendedor Maria",
-    username: "maria",
-    email: "maria@arcelormittal.com",
-    password: "maria123",
-    role: "vendedor",
   },
 ];
 
@@ -1173,7 +1157,7 @@ export default function Home() {
                 value={loginForm.username}
                 onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
                 className="w-full rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-white outline-none"
-                placeholder="analista ou analista@arcelormittal.com"
+                placeholder="Master ou master@arcelormittal.com"
               />
             </div>
 
@@ -1198,10 +1182,8 @@ export default function Home() {
           </div>
 
           <div className="mt-6 rounded-2xl border border-white/10 bg-[#0f172a] p-4 text-sm text-slate-300">
-            <p className="mb-2 font-semibold text-white">Credenciais de teste:</p>
-            <p>Analista: analista / analista123</p>
-            <p>Vendedor: vendedor / vendedor123</p>
-            <p>Vendedor: maria / maria123</p>
+            <p className="mb-2 font-semibold text-white">Usuário de teste:</p>
+            <p>Master: Master / Master001</p>
           </div>
         </div>
       </main>
