@@ -1157,7 +1157,7 @@ export default function Home() {
                 value={loginForm.username}
                 onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
                 className="w-full rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-white outline-none"
-                placeholder="Master ou master@arcelormittal.com"
+                placeholder="Digite seu usuário ou e-mail"
               />
             </div>
 
@@ -1181,10 +1181,6 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-white/10 bg-[#0f172a] p-4 text-sm text-slate-300">
-            <p className="mb-2 font-semibold text-white">Usuário de teste:</p>
-            <p>Master: Master / Master001</p>
-          </div>
         </div>
       </main>
     );
