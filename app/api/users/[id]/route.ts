@@ -16,11 +16,15 @@ export async function DELETE(
       .maybeSingle();
     if (lookupError) throw lookupError;
     if (!target) {
-      return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
+      return NextResponse.json(
+        { error: "Usuário não encontrado." },
+        { status: 404 },
+      );
     }
 
-    const isMaster = target.username.trim().toLowerCase() === "master"
-      || target.email.trim().toLowerCase() === "master@arcelormittal.com";
+    const isMaster =
+      target.username.trim().toLowerCase() === "master" ||
+      target.email.trim().toLowerCase() === "master@arcelormittal.com";
     if (isMaster) {
       return NextResponse.json(
         { error: "A exclusão do Master foi bloqueada pelo administrador." },
