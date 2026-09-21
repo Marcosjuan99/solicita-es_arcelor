@@ -35,9 +35,10 @@ export async function GET(request: Request) {
         { error: "Usuário não encontrado para este convite." },
         { status: 404 },
       );
+    const { password: _password, ...safeUser } = user;
     return NextResponse.json({
       ok: true,
-      user: { ...user, isPending: user.is_pending },
+      user: { ...safeUser, isPending: user.is_pending },
     });
   } catch (error) {
     console.error("Invite validation failed:", error);
@@ -108,7 +109,10 @@ export async function POST(request: Request) {
       emailResult = {
         ok: false,
         mode: "manual",
-        error: emailError instanceof Error ? emailError.message : "SMTP indisponível",
+        error:
+          emailError instanceof Error
+            ? emailError.message
+            : "SMTP indisponível",
         link: inviteLink,
       };
     }

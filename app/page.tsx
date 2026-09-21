@@ -466,7 +466,14 @@ export default function Home() {
     const inviteToken = params.get("invite");
     const savedUser = window.localStorage.getItem(CURRENT_USER_KEY);
     if (inviteToken) {
-      void getSupabaseBrowserClient().auth.signOut();
+      const clearAuthSession = async () => {
+        try {
+          await getSupabaseBrowserClient().auth.signOut();
+        } catch (error) {
+          console.error("Could not clear previous Auth session:", error);
+        }
+      };
+      void clearAuthSession();
       window.localStorage.removeItem(CURRENT_USER_KEY);
     } else if (savedUser) {
       setCurrentUser(JSON.parse(savedUser));
