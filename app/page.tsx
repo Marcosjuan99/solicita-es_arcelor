@@ -806,6 +806,7 @@ export default function Home() {
       localStorage.setItem(USERS_KEY, JSON.stringify(refreshedUsers));
     } catch (error) {
       console.error(error);
+      alert(error instanceof Error ? error.message : "Não foi possível excluir o usuário.");
       const fallbackUsers = mergeProtectedUsers(getUsers());
       setUsers(fallbackUsers);
       localStorage.setItem(USERS_KEY, JSON.stringify(fallbackUsers));

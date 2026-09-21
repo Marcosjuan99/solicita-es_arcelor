@@ -2,6 +2,22 @@ import { NextResponse } from "next/server";
 
 import { requireSupabase } from "../../../../lib/supabase";
 
+const fromRow = (row: Record<string, unknown>) => ({
+  id: row.id,
+  unidade: row.unidade,
+  vendedor: row.vendedor,
+  codigo: row.codigo,
+  cotacao: row.cotacao ?? "",
+  descricao: row.descricao,
+  volume: Number(row.volume),
+  unidadeMedida: row.unidade_medida,
+  status: row.status,
+  data: row.data,
+  previsao: row.previsao,
+  rit: row.rit,
+  observacao: row.observacao,
+});
+
 const toRow = (body: Record<string, unknown>) => {
   const row: Record<string, unknown> = {};
   const fields: Record<string, string> = {
@@ -40,7 +56,7 @@ export async function PATCH(
       .select()
       .single();
     if (error) throw error;
-    return NextResponse.json({ request: data });
+    return NextResponse.json({ request: fromRow(data) });
   } catch (error) {
     console.error("Request update failed:", error);
     return NextResponse.json(
