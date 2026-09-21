@@ -1,64 +1,51 @@
 import { randomUUID } from "crypto";
-import { mkdir, readFile, writeFile } from "fs/promises";
-import path from "path";
 import { NextResponse } from "next/server";
 
 import { sendInviteEmail } from "../../../lib/email";
-
-const dataDir = path.join(process.cwd(), "data");
-const usersFile = path.join(dataDir, "users.json");
-const invitesFile = path.join(dataDir, "invites.json");
-
-type StoredUser = {
-  id: string;
-  name: string;
-  username: string;
-  email: string;
-  password: string;
-  role: "analista" | "vendedor";
-  isPending?: boolean;
-};
-
-async function readJson<T>(filePath: string, fallback: T): Promise<T> {
-  try {
-    const content = await readFile(filePath, "utf8");
-    return JSON.parse(content) as T;
-  } catch {
-    return fallback;
-  }
-}
+import { requireSupabase } from "../../../lib/supabase";
 
 export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const token = searchParams.get("token");
+  try {
+    const token = new URL(request.url).searchParams.get("token");
+    if (!token)
+      return NextResponse.json(
+        { error: "Token obrigatório." },
+        { status: 400 },
+      );
 
-  if (!token) {
-    return NextResponse.json({ error: "Token obrigatório." }, { status: 400 });
-  }
-
-  const invites = await readJson<
-    Array<{ token: string; userId: string; email: string; used: boolean }>
-  >(invitesFile, []);
-  const invite = invites.find((item) => item.token === token && !item.used);
-
-  if (!invite) {
+    const client = requireSupabase();
+    const { data: invite } = await client
+      .from("invites")
+      .select("*")
+      .eq("token", token)
+      .eq("used", false)
+      .maybeSingle();
+    if (!invite)
+      return NextResponse.json(
+        { error: "Convite inválido ou já utilizado." },
+        { status: 404 },
+      );
+    const { data: user } = await client
+      .from("users")
+      .select("*")
+      .eq("id", invite.user_id)
+      .single();
+    if (!user)
+      return NextResponse.json(
+        { error: "Usuário não encontrado para este convite." },
+        { status: 404 },
+      );
+    return NextResponse.json({
+      ok: true,
+      user: { ...user, isPending: user.is_pending },
+    });
+  } catch (error) {
+    console.error("Invite validation failed:", error);
     return NextResponse.json(
-      { error: "Convite inválido ou já utilizado." },
-      { status: 404 },
+      { error: "Não foi possível validar o convite." },
+      { status: 500 },
     );
   }
-
-  const users = await readJson<StoredUser[]>(usersFile, []);
-  const user = users.find((item) => item.id === invite.userId);
-
-  if (!user) {
-    return NextResponse.json(
-      { error: "Usuário não encontrado para este convite." },
-      { status: 404 },
-    );
-  }
-
-  return NextResponse.json({ ok: true, user });
 }
 
 export async function POST(request: Request) {
@@ -69,72 +56,54 @@ export async function POST(request: Request) {
       .trim()
       .toLowerCase();
     const role = body?.role === "analista" ? "analista" : "vendedor";
-
-    if (!name || !email) {
+    if (!name || !email)
       return NextResponse.json(
         { error: "Nome e e-mail são obrigatórios." },
         { status: 400 },
       );
-    }
 
-    await mkdir(dataDir, { recursive: true });
-
-    const users = await readJson<StoredUser[]>(usersFile, []);
-    const alreadyExists = users.some(
-      (user) =>
-        user.email.toLowerCase() === email ||
-        user.username.toLowerCase() === email.split("@")[0].toLowerCase(),
-    );
-
-    if (alreadyExists) {
+    const client = requireSupabase();
+    const username = email.split("@")[0].toLowerCase();
+    const { data: existing } = await client
+      .from("users")
+      .select("id")
+      .or(`email.eq.${email},username.eq.${username}`);
+    if (existing?.length)
       return NextResponse.json(
         { error: "Usuário ou e-mail já cadastrado." },
         { status: 409 },
       );
-    }
 
-    const user: StoredUser = {
-      id: randomUUID(),
-      name,
-      username: email.split("@")[0].toLowerCase(),
-      email,
-      password: "",
-      role,
-      isPending: true,
-    };
-
-    const nextUsers = [...users, user];
-    await writeFile(usersFile, JSON.stringify(nextUsers, null, 2));
-
+    const userId = randomUUID();
     const token = randomUUID();
-    const invites = await readJson<
-      Array<{
-        token: string;
-        userId: string;
-        email: string;
-        createdAt: string;
-        used: boolean;
-      }>
-    >(invitesFile, []);
-    invites.push({
-      token,
-      userId: user.id,
-      email: user.email,
-      createdAt: new Date().toISOString(),
-      used: false,
-    });
-    await writeFile(invitesFile, JSON.stringify(invites, null, 2));
+    const { data: user, error: userError } = await client
+      .from("users")
+      .insert({
+        id: userId,
+        name,
+        username,
+        email,
+        password: "",
+        role,
+        is_pending: true,
+      })
+      .select()
+      .single();
+    if (userError) throw userError;
+    const { error: inviteError } = await client
+      .from("invites")
+      .insert({ token, user_id: userId, email, used: false });
+    if (inviteError) throw inviteError;
 
     const inviteLink = `${process.env.APP_URL ?? "http://localhost:3000"}?invite=${token}`;
     const emailResult = await sendInviteEmail({
-      name: user.name,
-      email: user.email,
+      name,
+      email,
       link: inviteLink,
     });
-
     return NextResponse.json({
       ok: true,
-      user,
+      user: { ...user, isPending: user.is_pending },
       inviteLink,
       email: emailResult,
     });

@@ -1,17 +1,14 @@
-import { readFile } from "fs/promises";
-import path from "path";
-
-const dataFile = path.join(process.cwd(), "data", "invites.json");
+import { requireSupabase } from "../../../lib/supabase";
 
 export async function validateInvite(token: string) {
   try {
-    const content = await readFile(dataFile, "utf8");
-    const invites = JSON.parse(content);
-    const tokenItem = Array.isArray(invites)
-      ? invites.find((item: any) => item.token === token && !item.used)
-      : null;
-
-    return tokenItem ?? null;
+    const { data } = await requireSupabase()
+      .from("invites")
+      .select("*")
+      .eq("token", token)
+      .eq("used", false)
+      .maybeSingle();
+    return data ?? null;
   } catch {
     return null;
   }

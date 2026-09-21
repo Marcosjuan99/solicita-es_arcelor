@@ -312,7 +312,7 @@ const normalizeUser = (user: Partial<User>): User => {
     email: fallbackEmail,
     password: user.password ?? "",
     role: user.role === "analista" ? "analista" : "vendedor",
-    isPending: user.password ? false : true,
+    isPending: user.isPending ?? !user.password,
   };
 };
 
@@ -348,6 +348,20 @@ const syncUsersFromServer = async () => {
   }
 };
 
+const syncRequestsFromServer = async () => {
+  const response = await fetch("/api/requests");
+  if (!response.ok) throw new Error("Não foi possível carregar as solicitações.");
+  const data = await response.json();
+  return Array.isArray(data?.requests) ? data.requests as RequestItem[] : [];
+};
+
+const syncLogsFromServer = async () => {
+  const response = await fetch("/api/logs");
+  if (!response.ok) throw new Error("Não foi possível carregar os logs.");
+  const data = await response.json();
+  return Array.isArray(data?.logs) ? data.logs as AuditLog[] : [];
+};
+
 const getInviteTokens = (): Array<{ id: string; userId: string; email: string; token: string; createdAt: string; used: boolean }> => {
   const saved = localStorage.getItem(INVITE_TOKENS_KEY);
   const parsed = saved ? JSON.parse(saved) : [];
@@ -361,27 +375,7 @@ const markInviteUsed = (userId: string) => {
   localStorage.setItem(INVITE_TOKENS_KEY, JSON.stringify(tokens));
 };
 
-const buildInviteLink = (user: User) => {
-  const token = makeId();
-  const tokens = getInviteTokens();
-  const nextTokens = [...tokens, {
-    id: token,
-    userId: user.id,
-    email: user.email,
-    token,
-    createdAt: new Date().toISOString(),
-    used: false,
-  }];
-  localStorage.setItem(INVITE_TOKENS_KEY, JSON.stringify(nextTokens));
-
-  const url = new URL(window.location.href);
-  url.searchParams.set("invite", token);
-  url.hash = "";
-
-  return url.toString();
-};
-
-const addAuditLog = (
+const addAuditLog = async (
   currentUser: User | null,
   action: AuditLog["action"],
   details: string,
@@ -390,7 +384,7 @@ const addAuditLog = (
   requestData?: AuditLog["requestData"],
   requestOwner?: string,
 ) => {
-  if (!currentUser) return;
+  if (!currentUser) return null;
 
   const entry: AuditLog = {
     id: makeId(),
@@ -406,12 +400,14 @@ const addAuditLog = (
     requestCode,
   };
 
-  const saved = localStorage.getItem(LOG_KEY);
-  const logs: AuditLog[] = saved ? JSON.parse(saved) : [];
-  const nextLogs = [entry, ...logs].filter(
-    (log) => log.action === "Nova solicitação" || log.action === "Edição da solicitação",
-  );
-  localStorage.setItem(LOG_KEY, JSON.stringify(nextLogs.slice(0, 60)));
+  const response = await fetch("/api/logs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entry),
+  });
+  if (!response.ok) throw new Error("Não foi possível salvar o log.");
+  const result = await response.json();
+  return result.log as AuditLog;
 };
 
 export default function Home() {
@@ -427,7 +423,6 @@ export default function Home() {
   const [logsFilter, setLogsFilter] = useState<"mine" | "all">("mine");
   const [logsDateFilter, setLogsDateFilter] = useState<DateFilter>("todos");
   const [readLogIds, setReadLogIds] = useState<string[]>([]);
-  const [lastUpdated, setLastUpdated] = useState<string>(new Date().toISOString());
   const [showForm, setShowForm] = useState(false);
   const [showRanking, setShowRanking] = useState(false);
   const [rankingView, setRankingView] = useState<"solicitacoes" | "volume">("solicitacoes");
@@ -460,7 +455,24 @@ export default function Home() {
       setUsers(serverUsers);
     };
 
+    const hydrateRequestsAndLogs = async () => {
+      try {
+        const [serverRequests, serverLogs] = await Promise.all([
+          syncRequestsFromServer(),
+          syncLogsFromServer(),
+        ]);
+        setRequests(serverRequests);
+        setAuditLogs(serverLogs);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serverRequests));
+        window.localStorage.setItem(LOG_KEY, JSON.stringify(serverLogs));
+      } catch (error) {
+        console.error("Failed to sync requests and logs:", error);
+        setRequests(initialData);
+      }
+    };
+
     void hydrateUsers();
+    void hydrateRequestsAndLogs();
 
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get("invite");
@@ -476,23 +488,6 @@ export default function Home() {
         .catch(() => undefined);
     }
 
-    const savedRequests = window.localStorage.getItem(STORAGE_KEY);
-    if (savedRequests) {
-      setRequests(JSON.parse(savedRequests));
-    } else {
-      setRequests(initialData);
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(initialData));
-    }
-
-    const savedLogs = window.localStorage.getItem(LOG_KEY);
-    if (savedLogs) {
-      setAuditLogs(JSON.parse(savedLogs));
-    } else {
-      const initialLogs: AuditLog[] = [];
-      setAuditLogs(initialLogs);
-      window.localStorage.setItem(LOG_KEY, JSON.stringify(initialLogs));
-    }
-
     const savedUser = window.localStorage.getItem(CURRENT_USER_KEY);
     if (savedUser) {
       setCurrentUser(JSON.parse(savedUser));
@@ -502,7 +497,6 @@ export default function Home() {
   useEffect(() => {
     if (!requests.length) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
-    setLastUpdated(new Date().toISOString());
   }, [requests]);
 
   useEffect(() => {
@@ -677,7 +671,7 @@ export default function Home() {
       return;
     }
 
-    if (!matchedUser.password || matchedUser.password === "") {
+    if (matchedUser.isPending) {
       const response = await fetch("/api/users/password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -700,16 +694,22 @@ export default function Home() {
       return;
     }
 
-    if (matchedUser.password !== passwordValue) {
-      alert("Senha inválida.");
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login: loginValue, password: passwordValue }),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      alert(result?.error ?? "Não foi possível entrar no sistema.");
       return;
     }
 
     const savedLogs = window.localStorage.getItem(LOG_KEY);
     setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
-    setCurrentUser(matchedUser);
+    setCurrentUser(result.user);
     setLoginForm({ username: "", password: "" });
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(matchedUser));
+    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(result.user));
   };
 
   const handleCreateUser = async () => {
@@ -830,7 +830,7 @@ export default function Home() {
     alert(`O usuário ${target.name} foi excluído.`);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!currentUser) return;
     if (!form.codigo || !form.cotacao || !form.descricao || !form.volume) {
       return;
@@ -855,25 +855,37 @@ export default function Home() {
         : `Solicitação registrada pelo analista ${currentUser.name}.`,
     };
 
-    setRequests((current) => [newRequest, ...current]);
-    addAuditLog(
-      currentUser,
-      "Nova solicitação",
-      `Criação da demanda ${newRequest.codigo}.`,
-      newRequest.id,
-      newRequest.codigo,
-      {
-        unidade: newRequest.unidade,
-        vendedor: newRequest.vendedor,
-        codigo: newRequest.codigo,
-        cotacao: newRequest.cotacao,
-        descricao: newRequest.descricao,
-        volume: newRequest.volume,
-        unidadeMedida: newRequest.unidadeMedida,
-      },
-      newRequest.vendedor,
-    );
-    setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
+    try {
+      const response = await fetch("/api/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newRequest, createdBy: currentUser.id }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error ?? "Não foi possível salvar a solicitação.");
+      setRequests((current) => [result.request, ...current]);
+      const log = await addAuditLog(
+        currentUser,
+        "Nova solicitação",
+        `Criação da demanda ${newRequest.codigo}.`,
+        newRequest.id,
+        newRequest.codigo,
+        {
+          unidade: newRequest.unidade,
+          vendedor: newRequest.vendedor,
+          codigo: newRequest.codigo,
+          cotacao: newRequest.cotacao,
+          descricao: newRequest.descricao,
+          volume: newRequest.volume,
+          unidadeMedida: newRequest.unidadeMedida,
+        },
+        newRequest.vendedor,
+      );
+      if (log) setAuditLogs((current) => [log, ...current]);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível salvar a solicitação.");
+      return;
+    }
 
     setForm({
       unidade: "9666",
@@ -921,7 +933,7 @@ export default function Home() {
     }));
   };
 
-  const saveRequestChanges = (id: string) => {
+  const saveRequestChanges = async (id: string) => {
     if (!isAnalyst || !currentUser) return;
 
     const currentItem = requests.find((item) => item.id === id);
@@ -966,25 +978,37 @@ export default function Home() {
       })
       .join("; ");
 
-    setRequests((current) => current.map((item) => (item.id === id ? nextItem : item)));
-    addAuditLog(
-      currentUser,
-      "Edição da solicitação",
-      `Alteração da solicitação ${currentItem.codigo}: ${formattedChanges}.`,
-      currentItem.id,
-      currentItem.codigo,
-      {
-        unidade: nextItem.unidade,
-        vendedor: nextItem.vendedor,
-        codigo: nextItem.codigo,
-        cotacao: nextItem.cotacao,
-        descricao: nextItem.descricao,
-        volume: nextItem.volume,
-        unidadeMedida: nextItem.unidadeMedida,
-      },
-      currentItem.vendedor,
-    );
-    setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
+    try {
+      const response = await fetch(`/api/requests/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(nextItem),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result?.error ?? "Não foi possível atualizar a solicitação.");
+      setRequests((current) => current.map((item) => (item.id === id ? result.request : item)));
+      const log = await addAuditLog(
+        currentUser,
+        "Edição da solicitação",
+        `Alteração da solicitação ${currentItem.codigo}: ${formattedChanges}.`,
+        currentItem.id,
+        currentItem.codigo,
+        {
+          unidade: nextItem.unidade,
+          vendedor: nextItem.vendedor,
+          codigo: nextItem.codigo,
+          cotacao: nextItem.cotacao,
+          descricao: nextItem.descricao,
+          volume: nextItem.volume,
+          unidadeMedida: nextItem.unidadeMedida,
+        },
+        currentItem.vendedor,
+      );
+      if (log) setAuditLogs((current) => [log, ...current]);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível atualizar a solicitação.");
+      return;
+    }
 
     setDraftChanges((current) => {
       const next = { ...current };
@@ -1001,7 +1025,7 @@ export default function Home() {
     );
   };
 
-  const deleteRequest = (id: string) => {
+  const deleteRequest = async (id: string) => {
     if (!isAnalyst || !currentUser) return;
 
     const target = requests.find((item) => item.id === id);
@@ -1010,10 +1034,16 @@ export default function Home() {
     const confirmed = window.confirm(`Deseja realmente excluir a solicitação ${target.codigo}?`);
     if (!confirmed) return;
 
-    const nextRequests = requests.filter((item) => item.id !== id);
-    setRequests(nextRequests);
+    const response = await fetch(`/api/requests/${id}`, { method: "DELETE" });
+    const result = await response.json();
+    if (!response.ok) {
+      alert(result?.error ?? "Não foi possível excluir a solicitação.");
+      return;
+    }
+
+    setRequests((current) => current.filter((item) => item.id !== id));
     setSelectedForDeletion((current) => current.filter((itemId) => itemId !== id));
-    addAuditLog(
+    const log = await addAuditLog(
       currentUser,
       "Edição da solicitação",
       `Exclusão da solicitação ${target.codigo}: código removido do sistema.`,
@@ -1029,10 +1059,10 @@ export default function Home() {
       },
       target.vendedor,
     );
-    setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
+    if (log) setAuditLogs((current) => [log, ...current]);
   };
 
-  const deleteSelectedRequests = () => {
+  const deleteSelectedRequests = async () => {
     if (!isAnalyst || !currentUser || !selectedForDeletion.length) return;
 
     const targets = requests.filter((item) => selectedForDeletion.includes(item.id));
@@ -1041,9 +1071,16 @@ export default function Home() {
     );
     if (!confirmed) return;
 
+    const responses = await Promise.all(
+      targets.map((target) => fetch(`/api/requests/${target.id}`, { method: "DELETE" })),
+    );
+    if (responses.some((response) => !response.ok)) {
+      alert("Não foi possível excluir todas as solicitações.");
+      return;
+    }
+
     setRequests((current) => current.filter((item) => !selectedForDeletion.includes(item.id)));
-    targets.forEach((target) => {
-      addAuditLog(
+    const logs = await Promise.all(targets.map((target) => addAuditLog(
         currentUser,
         "Edição da solicitação",
         `Exclusão da solicitação ${target.codigo}: código removido do sistema.`,
@@ -1059,9 +1096,8 @@ export default function Home() {
           unidadeMedida: target.unidadeMedida,
         },
         target.vendedor,
-      );
-    });
-    setAuditLogs(JSON.parse(localStorage.getItem(LOG_KEY) ?? JSON.stringify([])));
+      )));
+    setAuditLogs((current) => [...logs.filter((log): log is AuditLog => Boolean(log)), ...current]);
     setSelectedForDeletion([]);
   };
 
