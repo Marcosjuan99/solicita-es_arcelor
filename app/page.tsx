@@ -468,7 +468,7 @@ export default function Home() {
     if (inviteToken) {
       const clearAuthSession = async () => {
         try {
-          await getSupabaseBrowserClient().auth.signOut();
+          await getSupabaseBrowserClient()?.auth.signOut();
         } catch (error) {
           console.error("Could not clear previous Auth session:", error);
         }
@@ -689,7 +689,8 @@ export default function Home() {
       const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
       let authError;
       try {
-        ({ error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+        const authClient = getSupabaseBrowserClient();
+        if (authClient) ({ error: authError } = await authClient.auth.signInWithPassword({
           email: matchedUser.email,
           password: passwordValue,
         }));
@@ -723,7 +724,8 @@ export default function Home() {
 
     let authError;
     try {
-      ({ error: authError } = await getSupabaseBrowserClient().auth.signInWithPassword({
+      const authClient = getSupabaseBrowserClient();
+      if (authClient) ({ error: authError } = await authClient.auth.signInWithPassword({
         email: result.user.email,
         password: passwordValue,
       }));
@@ -1342,7 +1344,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={() => {
-                  void getSupabaseBrowserClient().auth.signOut();
+                  void getSupabaseBrowserClient()?.auth.signOut();
                   setCurrentUser(null);
                   window.localStorage.removeItem(CURRENT_USER_KEY);
                 }}

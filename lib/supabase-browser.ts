@@ -10,7 +10,7 @@ export function getSupabaseBrowserClient() {
     process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) {
-    throw new Error("Supabase Auth não configurado no navegador.");
+    return null;
   }
 
   browserClient = createBrowserClient(url, anonKey);
