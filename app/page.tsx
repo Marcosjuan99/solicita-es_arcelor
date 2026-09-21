@@ -58,6 +58,7 @@ const STORAGE_KEY = "am-estoque-demandas";
 const LOG_KEY = "am-estoque-logs";
 const READ_LOGS_KEY = "am-estoque-read-logs";
 const USERS_KEY = "am-estoque-users";
+const CURRENT_USER_KEY = "am-estoque-current-user";
 const INVITE_TOKENS_KEY = "am-estoque-invite-tokens";
 
 const defaultUsers: User[] = [
@@ -75,7 +76,7 @@ const mergeProtectedUsers = (list: Partial<User>[]): User[] => {
   const seen = new Set<string>();
   const merged: User[] = [];
 
-  [...defaultUsers, ...list].forEach((user) => {
+  [...list, ...defaultUsers].forEach((user) => {
     const candidate = normalizeUser(user);
     const key = candidate.email.toLowerCase();
     if (seen.has(key)) {
@@ -459,7 +460,15 @@ export default function Home() {
 
     const params = new URLSearchParams(window.location.search);
     const inviteToken = params.get("invite");
+    const savedUser = window.localStorage.getItem(CURRENT_USER_KEY);
     if (inviteToken) {
+      window.localStorage.removeItem(CURRENT_USER_KEY);
+    } else if (savedUser) {
+      setCurrentUser(JSON.parse(savedUser));
+    }
+
+    if (inviteToken) {
+      window.history.replaceState({}, "", window.location.pathname);
       fetch(`/api/invite?token=${encodeURIComponent(inviteToken)}`)
         .then((response) => response.json())
         .then((result) => {
@@ -482,6 +491,12 @@ export default function Home() {
     if (!users.length) return;
     window.localStorage.setItem(USERS_KEY, JSON.stringify(users));
   }, [users]);
+
+  useEffect(() => {
+    if (currentUser) {
+      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(currentUser));
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -629,7 +644,9 @@ export default function Home() {
   );
 
   const handleLogin = async () => {
-    const savedUsers = getUsers();
+    const serverUsers = await syncUsersFromServer();
+    setUsers(serverUsers);
+    const savedUsers = serverUsers;
     const loginValue = loginForm.username.trim().toLowerCase();
     const passwordValue = loginForm.password.trim();
 
@@ -663,6 +680,7 @@ export default function Home() {
       setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
       setCurrentUser(authenticatedUser);
       setLoginForm({ username: "", password: "" });
+      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
       return;
     }
 
@@ -681,6 +699,7 @@ export default function Home() {
     setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
     setCurrentUser(result.user);
     setLoginForm({ username: "", password: "" });
+    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(result.user));
   };
 
   const handleCreateUser = async () => {
@@ -734,13 +753,6 @@ export default function Home() {
     const target = users.find((user) => user.id === userId);
     if (!target || target.id === currentUser.id) return;
 
-    const isMaster = target.username.trim().toLowerCase() === "master"
-      || target.email.trim().toLowerCase() === "master@arcelormittal.com";
-    if (isMaster) {
-      alert("A exclusão do Master foi bloqueada pelo administrador.");
-      return;
-    }
-
     const confirmed = window.confirm(`Deseja realmente resetar a senha de ${target.name}?`);
     if (!confirmed) return;
 
@@ -771,6 +783,13 @@ export default function Home() {
     const target = users.find((user) => user.id === userId);
     if (!target || target.id === currentUser.id) return;
 
+    const isMaster = target.username.trim().toLowerCase() === "master"
+      || target.email.trim().toLowerCase() === "master@arcelormittal.com";
+    if (isMaster) {
+      alert("A exclusão do Master foi bloqueada pelo administrador.");
+      return;
+    }
+
     const confirmed = window.confirm(`Deseja realmente excluir o usuário ${target.name}?`);
     if (!confirmed) return;
 
@@ -780,6 +799,7 @@ export default function Home() {
 
     if (currentUser.id === userId) {
       setCurrentUser(null);
+      localStorage.removeItem(CURRENT_USER_KEY);
     }
 
     try {
@@ -1238,6 +1258,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   setCurrentUser(null);
+                  window.localStorage.removeItem(CURRENT_USER_KEY);
                 }}
                 className="rounded-xl border border-white/10 bg-[#10151d] px-4 py-2 text-sm font-semibold text-slate-200 hover:border-white/20"
               >
