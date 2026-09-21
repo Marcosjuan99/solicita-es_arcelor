@@ -23,9 +23,10 @@ export async function GET() {
     console.error("User listing failed:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error
-          ? `Não foi possível carregar os usuários: ${error.message}`
-          : "Não foi possível carregar os usuários.",
+        error:
+          error instanceof Error
+            ? `Não foi possível carregar os usuários: ${error.message}`
+            : "Não foi possível carregar os usuários.",
       },
       { status: 500 },
     );
@@ -78,9 +79,10 @@ export async function POST(request: Request) {
     console.error("User creation failed:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error
-          ? `Não foi possível criar o usuário: ${error.message}`
-          : "Não foi possível criar o usuário.",
+        error:
+          error instanceof Error
+            ? `Não foi possível criar o usuário: ${error.message}`
+            : "Não foi possível criar o usuário.",
       },
       { status: 500 },
     );

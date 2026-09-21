@@ -18,9 +18,10 @@ export async function DELETE(
     console.error("Delete user failed:", error);
     return NextResponse.json(
       {
-        error: error instanceof Error
-          ? `Não foi possível excluir o usuário: ${error.message}`
-          : "Não foi possível excluir o usuário.",
+        error:
+          error instanceof Error
+            ? `Não foi possível excluir o usuário: ${error.message}`
+            : "Não foi possível excluir o usuário.",
       },
       { status: 500 },
     );
