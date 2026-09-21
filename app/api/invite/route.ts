@@ -52,18 +52,18 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const name = String(body?.name ?? "").trim();
+    const username = String(body?.username ?? "").trim();
     const email = String(body?.email ?? "")
       .trim()
       .toLowerCase();
     const role = body?.role === "analista" ? "analista" : "vendedor";
-    if (!name || !email)
+    if (!name || !username || !email)
       return NextResponse.json(
-        { error: "Nome e e-mail são obrigatórios." },
+        { error: "Nome, nome de usuário e e-mail são obrigatórios." },
         { status: 400 },
       );
 
     const client = requireSupabase();
-    const username = email.split("@")[0].toLowerCase();
     const { data: existing } = await client
       .from("users")
       .select("id")

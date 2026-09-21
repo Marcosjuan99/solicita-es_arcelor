@@ -726,10 +726,11 @@ export default function Home() {
     if (!isAnalyst) return;
 
     const name = newUserForm.name.trim();
+    const username = newUserForm.username.trim();
     const email = newUserForm.email.trim().toLowerCase();
 
-    if (!name || !email) {
-      alert("Preencha nome e e-mail.");
+    if (!name || !username || !email) {
+      alert("Preencha nome, nome de usuário e e-mail.");
       return;
     }
 
@@ -739,6 +740,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name,
+          username,
           email,
           role: newUserForm.role,
         }),
@@ -1583,11 +1585,17 @@ export default function Home() {
                   </button>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                   <input
                     value={newUserForm.name}
                     onChange={(event) => setNewUserForm({ ...newUserForm, name: event.target.value })}
                     placeholder="Nome completo"
+                    className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
+                  />
+                  <input
+                    value={newUserForm.username}
+                    onChange={(event) => setNewUserForm({ ...newUserForm, username: event.target.value })}
+                    placeholder="Nome de usuário"
                     className="rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-sm text-white"
                   />
                   <input
