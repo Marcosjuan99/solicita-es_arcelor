@@ -38,11 +38,14 @@ export async function ensureSupabaseAuthUser(
     (user) => user.email?.toLowerCase() === email.toLowerCase(),
   );
   if (existing) {
-    const { data, error } = await client.auth.admin.updateUserById(existing.id, {
-      password,
-      email_confirm: true,
-      user_metadata: metadata,
-    });
+    const { data, error } = await client.auth.admin.updateUserById(
+      existing.id,
+      {
+        password,
+        email_confirm: true,
+        user_metadata: metadata,
+      },
+    );
     if (error) throw error;
     return data.user;
   }

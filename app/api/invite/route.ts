@@ -96,11 +96,22 @@ export async function POST(request: Request) {
     if (inviteError) throw inviteError;
 
     const inviteLink = `${process.env.APP_URL ?? "http://localhost:3000"}?invite=${token}`;
-    const emailResult = await sendInviteEmail({
-      name,
-      email,
-      link: inviteLink,
-    });
+    let emailResult: Record<string, unknown>;
+    try {
+      emailResult = await sendInviteEmail({
+        name,
+        email,
+        link: inviteLink,
+      });
+    } catch (emailError) {
+      console.error("Invite email failed:", emailError);
+      emailResult = {
+        ok: false,
+        mode: "manual",
+        error: emailError instanceof Error ? emailError.message : "SMTP indisponível",
+        link: inviteLink,
+      };
+    }
     return NextResponse.json({
       ok: true,
       user: { ...user, isPending: user.is_pending },
@@ -110,7 +121,12 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Invite creation failed:", error);
     return NextResponse.json(
-      { error: "Não foi possível criar o convite." },
+      {
+        error:
+          error instanceof Error
+            ? `Não foi possível criar o convite: ${error.message}`
+            : "Não foi possível criar o convite.",
+      },
       { status: 500 },
     );
   }
