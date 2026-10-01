@@ -410,6 +410,7 @@ export default function Home() {
   const [logsDateFilter, setLogsDateFilter] = useState<DateFilter>("todos");
   const [readLogIds, setReadLogIds] = useState<string[]>([]);
   const [recentlyCreatedRequestId, setRecentlyCreatedRequestId] = useState<string | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     id: number;
@@ -676,93 +677,112 @@ export default function Home() {
   );
 
   const handleLogin = async () => {
-    const serverUsers = await syncUsersFromServer();
-    setUsers(serverUsers);
-    const savedUsers = serverUsers;
-    const loginValue = loginForm.username.trim().toLowerCase();
-    const passwordValue = loginForm.password.trim();
+    if (isLoggingIn) return;
 
-    const matchedUser = savedUsers.find((user) => {
-      const username = (user.username ?? "").trim().toLowerCase();
-      const email = (user.email ?? "").trim().toLowerCase();
-      return username === loginValue || email === loginValue;
-    });
+    setIsLoggingIn(true);
 
-    if (!matchedUser) {
-      alert("Usuário ou e-mail não encontrado.");
-      return;
-    }
+    try {
+      const serverUsers = await syncUsersFromServer();
+      setUsers(serverUsers);
+      const savedUsers = serverUsers;
+      const loginValue = loginForm.username.trim().toLowerCase();
+      const passwordValue = loginForm.password.trim();
 
-    if (matchedUser.isPending) {
-      const response = await fetch("/api/users/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: matchedUser.email, password: passwordValue }),
+      const matchedUser = savedUsers.find((user) => {
+        const username = (user.username ?? "").trim().toLowerCase();
+        const email = (user.email ?? "").trim().toLowerCase();
+        return username === loginValue || email === loginValue;
       });
 
-      const result = await response.json();
-      if (!response.ok) {
-        alert(result?.error ?? "Não foi possível criar a senha.");
+      if (!matchedUser) {
+        alert("Usuário ou e-mail não encontrado.");
         return;
       }
 
-      const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
+      if (matchedUser.isPending) {
+        const response = await fetch("/api/users/password", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: matchedUser.email, password: passwordValue }),
+        });
+
+        const result = await response.json();
+        if (!response.ok) {
+          alert(result?.error ?? "Não foi possível criar a senha.");
+          return;
+        }
+
+        const authenticatedUser = { ...matchedUser, ...result.user, password: passwordValue, isPending: false };
+        let authError;
+        try {
+          const authClient = getSupabaseBrowserClient();
+          if (authClient) ({ error: authError } = await authClient.auth.signInWithPassword({
+            email: matchedUser.email,
+            password: passwordValue,
+          }));
+        } catch (error) {
+          console.warn("Supabase Auth unavailable during invite login; continuing with app auth.", error);
+        }
+        if (authError) {
+          console.warn("Supabase Auth rejected login; continuing with app auth.", authError.message);
+        }
+        markInviteUsed(matchedUser.id);
+        const savedLogs = window.localStorage.getItem(LOG_KEY);
+        setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
+        setCurrentUser(authenticatedUser);
+        setLoginForm({ username: "", password: "" });
+        setShowForm(false);
+        window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
+        return;
+      }
+
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ login: loginValue, password: passwordValue }),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        alert(result?.error ?? "Não foi possível entrar no sistema.");
+        return;
+      }
+
       let authError;
       try {
         const authClient = getSupabaseBrowserClient();
         if (authClient) ({ error: authError } = await authClient.auth.signInWithPassword({
-          email: matchedUser.email,
+          email: result.user.email,
           password: passwordValue,
         }));
       } catch (error) {
-        alert(error instanceof Error ? error.message : "Supabase Auth não está configurado na Vercel.");
-        return;
+        console.warn("Supabase Auth unavailable during app login; continuing with app auth.", error);
       }
       if (authError) {
-        alert(authError.message);
-        return;
+        console.warn("Supabase Auth rejected login; continuing with app auth.", authError.message);
       }
-      markInviteUsed(matchedUser.id);
+
       const savedLogs = window.localStorage.getItem(LOG_KEY);
       setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
-      setCurrentUser(authenticatedUser);
+      setCurrentUser(result.user);
       setLoginForm({ username: "", password: "" });
-      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(authenticatedUser));
-      return;
-    }
+      setShowForm(false);
+      window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(result.user));
 
-    const response = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ login: loginValue, password: passwordValue }),
-    });
-    const result = await response.json();
-    if (!response.ok) {
-      alert(result?.error ?? "Não foi possível entrar no sistema.");
-      return;
+      try {
+        const [serverRequests, serverLogs] = await Promise.all([
+          syncRequestsFromServer(),
+          syncLogsFromServer(),
+        ]);
+        setRequests(serverRequests);
+        setAuditLogs(serverLogs);
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serverRequests));
+        window.localStorage.setItem(LOG_KEY, JSON.stringify(serverLogs));
+      } catch (error) {
+        console.error("Failed to hydrate dashboard after login:", error);
+      }
+    } finally {
+      setIsLoggingIn(false);
     }
-
-    let authError;
-    try {
-      const authClient = getSupabaseBrowserClient();
-      if (authClient) ({ error: authError } = await authClient.auth.signInWithPassword({
-        email: result.user.email,
-        password: passwordValue,
-      }));
-    } catch (error) {
-      alert(error instanceof Error ? error.message : "Supabase Auth não está configurado na Vercel.");
-      return;
-    }
-    if (authError) {
-      alert(authError.message);
-      return;
-    }
-
-    const savedLogs = window.localStorage.getItem(LOG_KEY);
-    setAuditLogs(savedLogs ? JSON.parse(savedLogs) : []);
-    setCurrentUser(result.user);
-    setLoginForm({ username: "", password: "" });
-    window.localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(result.user));
   };
 
   const handleCreateUser = async () => {
@@ -1237,6 +1257,12 @@ export default function Home() {
               <input
                 value={loginForm.username}
                 onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleLogin();
+                  }
+                }}
                 className="w-full rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-white outline-none"
                 placeholder="Digite seu usuário ou e-mail"
               />
@@ -1248,6 +1274,12 @@ export default function Home() {
                 type="password"
                 value={loginForm.password}
                 onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleLogin();
+                  }
+                }}
                 className="w-full rounded-xl border border-white/10 bg-[#0f172a] px-3 py-2.5 text-white outline-none"
                 placeholder="••••••••"
               />
@@ -1255,10 +1287,11 @@ export default function Home() {
 
             <button
               type="button"
-              onClick={handleLogin}
-              className="w-full rounded-xl bg-[#d7a24a] px-4 py-3 text-sm font-bold text-[#10151d] hover:bg-[#e4b564]"
+              onClick={() => void handleLogin()}
+              disabled={isLoggingIn}
+              className="w-full rounded-xl bg-[#d7a24a] px-4 py-3 text-sm font-bold text-[#10151d] hover:bg-[#e4b564] disabled:cursor-not-allowed disabled:opacity-75"
             >
-              Entrar
+              {isLoggingIn ? "Entrando..." : "Entrar"}
             </button>
           </div>
 
