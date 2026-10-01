@@ -640,7 +640,8 @@ export default function Home() {
   const duplicateGroups = useMemo(() => {
     const groups = new Map<string, number>();
     requests.forEach((item) => {
-      const key = `${item.unidade}|${item.codigo}|${item.descricao}`;
+      const key = item.codigo.trim();
+      if (!key) return;
       groups.set(key, (groups.get(key) ?? 0) + 1);
     });
     return [...groups.entries()].filter(([, count]) => count > 1).length;
