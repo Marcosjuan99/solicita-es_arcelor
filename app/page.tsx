@@ -409,6 +409,12 @@ export default function Home() {
   const [logsFilter, setLogsFilter] = useState<"mine" | "all">("mine");
   const [logsDateFilter, setLogsDateFilter] = useState<DateFilter>("todos");
   const [readLogIds, setReadLogIds] = useState<string[]>([]);
+  const [recentlyCreatedRequestId, setRecentlyCreatedRequestId] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<{
+    text: string;
+    id: number;
+    tone: "success" | "danger";
+  } | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [inviteLink, setInviteLink] = useState("");
   const [inviteCopied, setInviteCopied] = useState(false);
@@ -498,6 +504,20 @@ export default function Home() {
     if (!requests.length) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(requests));
   }, [requests]);
+
+  useEffect(() => {
+    if (!toastMessage) return;
+
+    const timeout = window.setTimeout(() => setToastMessage(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [toastMessage]);
+
+  useEffect(() => {
+    if (!recentlyCreatedRequestId) return;
+
+    const timeout = window.setTimeout(() => setRecentlyCreatedRequestId(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [recentlyCreatedRequestId]);
 
   useEffect(() => {
     if (!users.length) return;
@@ -904,6 +924,8 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error ?? "Não foi possível salvar a solicitação.");
       setRequests((current) => [result.request, ...current]);
+      setRecentlyCreatedRequestId(result.request.id);
+      setToastMessage({ text: "Solicitação criada", id: Date.now(), tone: "success" });
       const log = await addAuditLog(
         currentUser,
         "Nova solicitação",
@@ -1027,6 +1049,7 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result?.error ?? "Não foi possível atualizar a solicitação.");
       setRequests((current) => current.map((item) => (item.id === id ? result.request : item)));
+      setToastMessage({ text: "Alterações salvas", id: Date.now(), tone: "success" });
       const log = await addAuditLog(
         currentUser,
         "Edição da solicitação",
@@ -1083,6 +1106,7 @@ export default function Home() {
 
     setRequests((current) => current.filter((item) => item.id !== id));
     setSelectedForDeletion((current) => current.filter((itemId) => itemId !== id));
+    setToastMessage({ text: "Solicitação excluída", id: Date.now(), tone: "danger" });
     const log = await addAuditLog(
       currentUser,
       "Edição da solicitação",
@@ -1120,6 +1144,7 @@ export default function Home() {
     }
 
     setRequests((current) => current.filter((item) => !selectedForDeletion.includes(item.id)));
+    setToastMessage({ text: "Solicitações excluídas", id: Date.now(), tone: "danger" });
     const logs = await Promise.all(targets.map((target) => addAuditLog(
         currentUser,
         "Edição da solicitação",
@@ -1244,6 +1269,36 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-[#0f1117] text-slate-100">
+      {toastMessage && (
+        <div
+          key={toastMessage.id}
+          role="status"
+          aria-live="polite"
+          className={`fixed right-4 top-4 z-[60] w-[min(24rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-l-4 px-5 py-4 text-base font-bold shadow-[0_16px_48px_rgba(0,0,0,0.5)] ${
+            toastMessage.tone === "danger"
+              ? "border-red-300/50 bg-[#29191b] text-red-50"
+              : "border-emerald-300/50 bg-[#17231f] text-emerald-50"
+          }`}
+        >
+          <div className="flex items-center gap-4">
+            <span aria-hidden="true" className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl ${
+              toastMessage.tone === "danger"
+                ? "bg-red-400/20 text-red-300"
+                : "bg-emerald-400/20 text-emerald-300"
+            }`}>
+              ✓
+            </span>
+            {toastMessage.text}
+          </div>
+          <div aria-hidden="true" className={`absolute inset-x-0 bottom-0 h-1 ${
+            toastMessage.tone === "danger" ? "bg-red-950/80" : "bg-emerald-950/80"
+          }`}>
+            <div className={`toast-progress h-full ${
+              toastMessage.tone === "danger" ? "bg-red-300" : "bg-emerald-300"
+            }`} />
+          </div>
+        </div>
+      )}
       <div className="mx-auto max-w-8xl px-4 py-8 sm:px-6 lg:px-8">
         {inviteLink && (
           <div
@@ -1907,7 +1962,12 @@ export default function Home() {
                   const hasPendingChanges = !!draftChanges[item.id];
 
                   return (
-                    <tr key={item.id} className="border-b border-white/10 bg-[#151d2a] text-slate-200 hover:bg-[#1a2433]">
+                    <tr
+                      key={item.id}
+                      className={`border-b border-white/10 bg-[#151d2a] text-slate-200 hover:bg-[#1a2433] ${
+                        item.id === recentlyCreatedRequestId ? "request-created-flash" : ""
+                      }`}
+                    >
                       {isAnalyst && (
                         <td className="px-3 py-3">
                           <input
@@ -2026,7 +2086,16 @@ export default function Home() {
                                 </option>
                               ))}
                             </select>
-                            <div className="text-[11px] text-slate-400">{draftItem.observacao}</div>
+                            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-300">
+                              Obs:
+                              <textarea
+                                value={draftItem.observacao}
+                                onChange={(event) => updateDraftField(item.id, "observacao", event.target.value)}
+                                rows={2}
+                                placeholder="Observação visível para o vendedor"
+                                className="min-h-16 w-full min-w-40 resize-y rounded-lg border border-white/10 bg-[#0f172a] px-2 py-1.5 text-xs font-normal text-white placeholder:text-slate-500"
+                              />
+                            </label>
                             <button
                               type="button"
                               onClick={() => deleteRequest(item.id)}
