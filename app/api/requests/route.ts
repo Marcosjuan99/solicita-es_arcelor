@@ -38,6 +38,21 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+    const client = requireSupabase();
+    const createdBy = body.createdBy ? String(body.createdBy).trim() : "";
+
+    let validCreatedBy: string | null = null;
+    if (createdBy) {
+      const { data: user, error: userError } = await client
+        .from("users")
+        .select("id")
+        .eq("id", createdBy)
+        .maybeSingle();
+
+      if (userError) throw userError;
+      if (user?.id) validCreatedBy = createdBy;
+    }
+
     const row = {
       id: String(body.id),
       unidade: String(body.unidade ?? "").trim(),
@@ -52,7 +67,7 @@ export async function POST(request: Request) {
       previsao: String(body.previsao ?? "-"),
       rit: String(body.rit ?? "-"),
       observacao: String(body.observacao ?? ""),
-      created_by: body.createdBy ? String(body.createdBy) : null,
+      created_by: validCreatedBy,
     };
 
     if (
@@ -70,7 +85,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data, error } = await requireSupabase()
+    const { data, error } = await client
       .from("requests")
       .insert(row)
       .select()
